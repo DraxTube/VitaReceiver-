@@ -2,17 +2,13 @@
 #include <stdio.h>
 #include <string.h>
 
-
 #include <psp2/net/http.h>
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
-#include <psp2/ssl.h>
 #include <psp2/sysmodule.h>
-
 
 #define NET_MEMORY_SIZE (1 * 1024 * 1024)
 #define HTTP_MEMORY_SIZE (1 * 1024 * 1024)
-#define SSL_MEMORY_SIZE (512 * 1024)
 
 static char s_ip_string[32];
 static uint32_t s_ip_addr;
@@ -54,11 +50,7 @@ int network_init(void) {
     sceNetInetPton(SCE_NET_AF_INET, info.ip_address, &s_ip_addr);
   }
 
-  // Initialize SSL
-  ret = sceSslInit(SSL_MEMORY_SIZE);
-  if (ret < 0 && ret != 0x80435020) {
-    // Non-fatal, HTTPS just won't work
-  }
+  // Note: SSL is handled internally by SceHttp when SCE_SYSMODULE_SSL is loaded
 
   // Initialize HTTP
   ret = sceHttpInit(HTTP_MEMORY_SIZE);
@@ -85,7 +77,6 @@ void network_term(void) {
     return;
 
   sceHttpTerm();
-  sceSslTerm();
   sceNetCtlTerm();
   sceNetTerm();
 
