@@ -4,12 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <strings.h>
 
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/net/http.h>
-
 
 // Segment storage
 static char s_segments[HLS_MAX_SEGMENTS][1024];
