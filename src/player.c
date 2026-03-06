@@ -16,7 +16,6 @@
 
 // ──────────── Constants ────────────
 
-#define MAX_HTTP_HANDLES 4
 #define AUDIO_GRAIN 1024
 #define GPU_MEM_ALIGN (256 * 1024)
 
@@ -32,7 +31,7 @@ typedef struct {
   int in_use;
 } HttpHandle;
 
-static HttpHandle s_http_handles[MAX_HTTP_HANDLES];
+static HttpHandle s_http_handle;
 
 // GPU memory block tracking
 #define MAX_GPU_BLOCKS 16
@@ -116,22 +115,13 @@ static void player_gpu_free(void *p, void *ptr) {
 }
 
 // ──────────── File Replacement Callbacks (HTTP I/O) ────────────
+// Note: VitaSDK SceAvPlayerFileReplacement callbacks receive objectPointer
+// as the void *p argument. No file descriptor is used.
 
 static int player_file_open(void *p, const char *filename) {
   (void)p;
 
-  // Find a free handle slot
-  int slot = -1;
-  for (int i = 0; i < MAX_HTTP_HANDLES; i++) {
-    if (!s_http_handles[i].in_use) {
-      slot = i;
-      break;
-    }
-  }
-  if (slot < 0)
-    return -1;
-
-  HttpHandle *h = &s_http_handles[slot];
+  HttpHandle *h = &s_http_handle;
   memset(h, 0, sizeof(*h));
   strncpy(h->url, filename, sizeof(h->url) - 1);
 
@@ -140,8 +130,8 @@ static int player_file_open(void *p, const char *filename) {
   if (h->tpl < 0)
     return -1;
 
-  // Disable SSL verification for HTTPS
-  sceHttpsDisableOption(h->tpl, 0x01); // SCE_HTTPS_FLAG_SERVER_VERIFY
+  // Disable SSL verification for HTTPS (global flag)
+  sceHttpsDisableOption(0x01); // SCE_HTTPS_FLAG_SERVER_VERIFY
 
   // Create connection
   h->conn = sceHttpCreateConnectionWithURL(h->tpl, filename, 0);
@@ -150,7 +140,7 @@ static int player_file_open(void *p, const char *filename) {
     return -1;
   }
 
-  // Do a HEAD request to get Content-Length
+  // Do a GET request with Range to get Content-Length
   int req =
       sceHttpCreateRequestWithURL(h->conn, SCE_HTTP_METHOD_GET, filename, 0);
   if (req < 0) {
@@ -159,7 +149,6 @@ static int player_file_open(void *p, const char *filename) {
     return -1;
   }
 
-  // Set range to just first byte to get Content-Length via Content-Range
   sceHttpAddRequestHeader(req, "Range", "bytes=0-0", SCE_HTTP_HEADER_OVERWRITE);
   sceHttpSetAutoRedirect(req, 1);
 
@@ -203,20 +192,18 @@ static int player_file_open(void *p, const char *filename) {
 
   sceHttpDeleteRequest(req);
 
-  // Recreate connection for future reads (the old one may be in a bad state)
+  // Recreate connection for future reads
   sceHttpDeleteConnection(h->conn);
   h->conn = sceHttpCreateConnectionWithURL(h->tpl, filename, 0);
 
   h->in_use = 1;
-  return slot;
+  return 0; // Success
 }
 
-static int player_file_close(void *p, int fd) {
+static int player_file_close(void *p) {
   (void)p;
-  if (fd < 0 || fd >= MAX_HTTP_HANDLES)
-    return -1;
 
-  HttpHandle *h = &s_http_handles[fd];
+  HttpHandle *h = &s_http_handle;
   if (!h->in_use)
     return -1;
 
@@ -227,13 +214,11 @@ static int player_file_close(void *p, int fd) {
   return 0;
 }
 
-static int player_file_read(void *p, int fd, uint8_t *buffer, uint64_t position,
+static int player_file_read(void *p, uint8_t *buffer, uint64_t position,
                             uint32_t length) {
   (void)p;
-  if (fd < 0 || fd >= MAX_HTTP_HANDLES)
-    return -1;
 
-  HttpHandle *h = &s_http_handles[fd];
+  HttpHandle *h = &s_http_handle;
   if (!h->in_use)
     return -1;
 
@@ -277,12 +262,10 @@ static int player_file_read(void *p, int fd, uint8_t *buffer, uint64_t position,
   return total_read;
 }
 
-static uint64_t player_file_size(void *p, int fd) {
+static uint64_t player_file_size(void *p) {
   (void)p;
-  if (fd < 0 || fd >= MAX_HTTP_HANDLES)
-    return 0;
 
-  HttpHandle *h = &s_http_handles[fd];
+  HttpHandle *h = &s_http_handle;
   if (!h->in_use)
     return 0;
 
@@ -334,7 +317,7 @@ static int audio_thread_func(SceSize args, void *argp) {
 int player_init(void) {
   sceSysmoduleLoadModule(SCE_SYSMODULE_AVPLAYER);
 
-  memset(s_http_handles, 0, sizeof(s_http_handles));
+  memset(&s_http_handle, 0, sizeof(s_http_handle));
   memset(s_gpu_blocks, 0, sizeof(s_gpu_blocks));
 
   s_player_state = PLAYER_IDLE;
