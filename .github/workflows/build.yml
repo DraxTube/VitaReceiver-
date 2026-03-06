@@ -1,0 +1,75 @@
+name: Build VitaReceiver
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check SDK environment
+        run: |
+          echo "VITASDK=${VITASDK}"
+          echo "--- Checking tools ---"
+          cmake --version || echo "cmake not found"
+          make --version 2>/dev/null | head -1 || echo "make not found"
+          echo "--- Checking vita2d ---"
+          ls -la ${VITASDK}/arm-vita-eabi/lib/libvita2d* 2>/dev/null || echo "vita2d lib NOT found"
+          ls -la ${VITASDK}/arm-vita-eabi/include/vita2d.h 2>/dev/null || echo "vita2d.h NOT found"
+
+      - name: Install dependencies
+        run: |
+          # vitasdk image is Alpine-based, install cmake/make if missing
+          apk add --no-cache cmake make git 2>/dev/null || true
+          # Install vita2d and other libs via vdpm (ignore errors if already present)
+          vdpm vita2d 2>/dev/null || true
+          vdpm libvita2d 2>/dev/null || true
+          vdpm freetype 2>/dev/null || true
+          vdpm libpng 2>/dev/null || true
+          vdpm libjpeg-turbo 2>/dev/null || true
+          vdpm zlib 2>/dev/null || true
+          # If vita2d is STILL missing, build from vitasdk packages source
+          if [ ! -f "${VITASDK}/arm-vita-eabi/lib/libvita2d.a" ]; then
+            echo "Building vita2d from source..."
+            cd /tmp
+            git clone --depth 1 https://github.com/xerpi/libvita2d.git
+            cd libvita2d/libvita2d
+            make -j$(nproc) || true
+            make install || true
+          fi
+
+      - name: Configure
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+
+      - name: Build
+        run: |
+          cd build
+          make -j$(nproc)
+
+      - name: Upload VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VitaReceiver-vpk
+          path: build/*.vpk
+          if-no-files-found: error
+
+      - name: Create Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*.vpk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
