@@ -1,6 +1,8 @@
 #ifndef UI_H
 #define UI_H
 
+#include <stdint.h>
+
 // Initialize UI (vita2d, load font)
 int ui_init(void);
 
