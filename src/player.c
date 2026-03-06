@@ -1,10 +1,10 @@
 #include "player.h"
 #include "hls.h"
 
+#include <malloc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 
 #include <psp2/audioout.h>
 #include <psp2/avplayer.h>
@@ -13,7 +13,6 @@
 #include <psp2/net/http.h>
 #include <psp2/sysmodule.h>
 #include <vita2d.h>
-
 
 // ──────────── Constants ────────────
 
